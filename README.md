@@ -92,7 +92,7 @@
 
 ```bash
 # 클론
-git clone https://github.com/<username>/auto-infinitetrade.git
+git clone https://github.com/gw-space/auto-infinitetrade.git
 cd auto-infinitetrade
 
 # 가상환경 생성 + 패키지 설치
@@ -104,7 +104,7 @@ pip install -r requirements.txt
 ### 방법 2: Docker
 
 ```bash
-git clone https://github.com/<username>/auto-infinitetrade.git
+git clone https://github.com/gw-space/auto-infinitetrade.git
 cd auto-infinitetrade
 docker compose build
 ```
