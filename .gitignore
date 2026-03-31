@@ -1,0 +1,39 @@
+# Secrets
+.env*
+!.env.example
+credentials/
+!credentials/.gitkeep
+
+# State & data
+data/
+!data/.gitkeep
+
+# Logs
+logs/
+!logs/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Charts temp
+*.png

@@ -1,0 +1,9 @@
+[project]
+name = "auto-infinitetrade"
+version = "0.1.0"
+description = "라오어 무한매수법 자동매매 봇 (한국투자증권 Open API)"
+requires-python = ">=3.10"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
