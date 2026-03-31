@@ -91,10 +91,9 @@ def calculate_daily_action(
         action.cold_start_qty = qty
         return action
 
-    # 남은 분할 수 확인
+    # 남은 분할 수 확인 — 1회차 미만이면 40회차 소진
     remaining_splits = state.num_splits - state.splits_used
-    if remaining_splits <= 0:
-        # 40회차 소진됨 → 전략에 따라 처리
+    if remaining_splits < 1.0:
         state.pending_sell = True
         return _handle_over40(state, action, current_price, existing_shares)
 
@@ -102,28 +101,14 @@ def calculate_daily_action(
     half_round_amount = state.split_amount * 0.5
     target_price = round(state.avg_price * (1 + state.profit_target_pct), 2)
 
-    # 남은 분할이 1.0 미만이면 남은 금액으로 조정
-    if remaining_splits < 1.0:
-        if remaining_splits >= 0.5:
-            # 평단 0.5 + 고가 나머지
-            loc_avg_amount = half_round_amount
-            loc_high_amount = (remaining_splits - 0.5) * state.split_amount
-        else:
-            # 0.5 미만: 고가에 남은 금액 전부 (체결 확률 높음)
-            loc_avg_amount = 0
-            loc_high_amount = remaining_splits * state.split_amount
-    else:
-        loc_avg_amount = half_round_amount
-        loc_high_amount = half_round_amount
-
     # LOC 매수(평단) 수량 계산 (내림)
-    if loc_avg_amount > 0 and state.avg_price > 0:
-        action.loc_buy_avg_qty = math.floor(loc_avg_amount / state.avg_price)
+    if state.avg_price > 0:
+        action.loc_buy_avg_qty = math.floor(half_round_amount / state.avg_price)
         action.loc_buy_avg_price = round(state.avg_price, 2)
 
     # LOC 매수(고가) 수량 계산 (내림)
-    if loc_high_amount > 0 and target_price > 0:
-        action.loc_buy_high_qty = math.floor(loc_high_amount / target_price)
+    if target_price > 0:
+        action.loc_buy_high_qty = math.floor(half_round_amount / target_price)
         action.loc_buy_high_price = target_price
 
     # 지정가 매도: 기존 보유분 전량 (당일 LOC 매수분 제외)
@@ -131,21 +116,12 @@ def calculate_daily_action(
         action.limit_sell_qty = existing_shares
         action.limit_sell_price = target_price
 
-    # 양쪽 다 0주 → 남은 금액으로 1주도 못 삼 → 40회차 소진 처리
-    if action.loc_buy_avg_qty == 0 and action.loc_buy_high_qty == 0:
-        if remaining_splits > 0:
-            logger.info(
-                f"{state.symbol}: 남은 {remaining_splits:.2f}분할로 매수 불가, 40회차 소진 처리"
-            )
-            state.pending_sell = True
-            return _handle_over40(state, action, current_price, existing_shares)
+    # 0주 경고
+    if action.loc_buy_avg_qty == 0:
+        logger.warning(f"{state.symbol}: LOC 평단 매수 0주 (주가 ${state.avg_price:.2f} > 0.5회차 ${half_round_amount:.2f})")
 
-    # 0주 경고 (한쪽만 0주인 경우)
-    if action.loc_buy_avg_qty == 0 and loc_avg_amount > 0:
-        logger.warning(f"{state.symbol}: LOC 평단 매수 0주 (주가 ${state.avg_price:.2f} > 0.5회차 ${loc_avg_amount:.2f})")
-
-    if action.loc_buy_high_qty == 0 and loc_high_amount > 0:
-        logger.warning(f"{state.symbol}: LOC 고가 매수 0주 (주가 ${target_price:.2f} > 0.5회차 ${loc_high_amount:.2f})")
+    if action.loc_buy_high_qty == 0:
+        logger.warning(f"{state.symbol}: LOC 고가 매수 0주 (주가 ${target_price:.2f} > 0.5회차 ${half_round_amount:.2f})")
 
     return action
 
