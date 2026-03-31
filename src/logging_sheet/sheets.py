@@ -168,35 +168,51 @@ class SheetsLogger:
             logger.error(f"사이클 요약 기록 실패: {e}")
 
     def create_monthly_backup(self) -> None:
-        """현재 스프레드시트의 시트들을 백업 탭으로 복사한다."""
+        """매년 1월에 연간 백업 생성 + 이전 월간 백업 삭제.
+
+        - 1월: 연간 백업 탭 생성 (예: 일별 기록_2025)
+        - 매월: 이전 연도의 월간 백업 탭이 있으면 삭제
+        """
         try:
             self._connect()
 
             now = datetime.now()
-            backup_suffix = now.strftime("%Y-%m")
+            year = now.year
+            month = now.month
 
             for sheet_name in [DAILY_SHEET_NAME, CYCLE_SHEET_NAME]:
                 try:
                     source_ws = self._spreadsheet.worksheet(sheet_name)
-                    backup_name = f"{sheet_name}_백업_{backup_suffix}"
 
-                    # 이미 백업 존재하면 스킵
-                    try:
-                        self._spreadsheet.worksheet(backup_name)
-                        logger.info(f"백업 '{backup_name}' 이미 존재, 스킵")
-                        continue
-                    except gspread.exceptions.WorksheetNotFound:
-                        pass
+                    if month == 1:
+                        # 1월: 연간 백업 생성 (데이터가 있을 때만)
+                        rows = source_ws.row_values(2)  # 헤더 다음 행
+                        if not rows:
+                            logger.info(f"'{sheet_name}' 데이터 없음, 백업 스킵")
+                        else:
+                            backup_name = f"{sheet_name}_{year - 1}"
+                            try:
+                                self._spreadsheet.worksheet(backup_name)
+                                logger.info(f"연간 백업 '{backup_name}' 이미 존재, 스킵")
+                            except gspread.exceptions.WorksheetNotFound:
+                                source_ws.copy_to(self.spreadsheet_id)
+                                worksheets = self._spreadsheet.worksheets()
+                                copied = worksheets[-1]
+                                copied.update_title(backup_name)
+                                logger.info(f"연간 백업 생성: {backup_name}")
 
-                    source_ws.copy_to(self.spreadsheet_id)
-                    # 복사된 시트 이름 변경
+                    # 이전 월간 백업 탭 정리 (레거시 호환)
                     worksheets = self._spreadsheet.worksheets()
-                    copied = worksheets[-1]  # 가장 마지막에 추가됨
-                    copied.update_title(backup_name)
+                    for ws in worksheets:
+                        if ws.title.startswith(f"{sheet_name}_백업_"):
+                            try:
+                                self._spreadsheet.del_worksheet(ws)
+                                logger.info(f"이전 월간 백업 삭제: {ws.title}")
+                            except Exception as e:
+                                logger.warning(f"백업 탭 삭제 실패: {ws.title}: {e}")
 
-                    logger.info(f"월간 백업 생성: {backup_name}")
                 except gspread.exceptions.WorksheetNotFound:
                     logger.warning(f"시트 '{sheet_name}' 없음, 백업 스킵")
 
         except Exception as e:
-            logger.error(f"월간 백업 실패: {e}")
+            logger.error(f"백업 실패: {e}")
