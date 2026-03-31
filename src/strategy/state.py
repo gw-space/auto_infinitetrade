@@ -34,6 +34,7 @@ class CycleState:
     profit_target_pct: float = 0.10
     over40_strategy: str = "quarter"  # 40회차 소진 전략
     over40_executed: bool = False     # 40회차 전략 실행 완료 여부
+    quarter_used: bool = False        # quarter 이미 1회 사용 여부
     processed_order_ids: list = None  # 처리 완료된 주문 ID 목록
 
     def __post_init__(self):
@@ -150,6 +151,7 @@ def reset_cycle(
     state.last_action = ""
     state.pending_sell = False
     state.over40_executed = False
+    state.quarter_used = False
     state.processed_order_ids = []
 
     logger.info(

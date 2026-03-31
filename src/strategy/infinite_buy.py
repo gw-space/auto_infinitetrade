@@ -174,18 +174,23 @@ def _handle_over40(
     target_price = round(state.avg_price * (1 + state.profit_target_pct), 2)
 
     if strategy == "quarter":
+        if state.quarter_used:
+            # quarter 이미 1회 사용 → full_exit 전환
+            action.over40_action = "full_exit"
+            action.full_exit_qty = existing_shares
+            action.skip_reason = "40회차 재소진 - quarter 1회 소진, 전량 매도 전환"
+            logger.info(f"{state.symbol}: quarter 이미 사용, full_exit 전환")
+            return action
+
         # 1/4 매도 → 시드 재확보 → 매수 재개
         if not state.over40_executed:
             quarter_qty = max(1, existing_shares // 4)
             action.over40_action = "quarter_sell"
             action.quarter_sell_qty = quarter_qty
-            # 지정가 매도도 유지
             action.limit_sell_qty = existing_shares
             action.limit_sell_price = target_price
             action.skip_reason = f"40회차 소진 - quarter 전략: {quarter_qty}주(1/4) 매도 실행"
         else:
-            # quarter 매도 완료 후 → 매수 재개 (일반 주문으로 복귀)
-            # pending_sell 해제는 main.py에서 처리
             action.limit_sell_qty = existing_shares
             action.limit_sell_price = target_price
             action.skip_reason = "40회차 소진 - quarter 매도 완료, 매수 재개 대기"
@@ -254,11 +259,13 @@ def apply_quarter_sell_result(state: CycleState, sold_qty: int, sold_amount: flo
         state.splits_used = max(0, state.splits_used - reclaimed_splits)
 
     state.over40_executed = True
+    state.quarter_used = True
     state.pending_sell = False  # 매수 재개
 
     logger.info(
         f"{state.symbol}: quarter 매도 {sold_qty}주 완료, "
-        f"splits_used {state.splits_used:.1f}/{state.num_splits}로 복원, 매수 재개"
+        f"splits_used {state.splits_used:.1f}/{state.num_splits}로 복원, 매수 재개 "
+        f"(quarter 1회 소진, 재소진 시 full_exit)"
     )
 
 

@@ -301,9 +301,26 @@ class TestOver40Quarter:
 
         assert state.total_shares == 150
         assert state.over40_executed is True
+        assert state.quarter_used is True
         assert state.pending_sell is False  # 매수 재개
         # splits_used: 40 - (1900/250) = 40 - 7.6 = 32.4
         assert state.splits_used == pytest.approx(32.4, abs=0.01)
+
+    def test_quarter_second_time_becomes_full_exit(self):
+        """quarter 이미 1회 사용 → 재소진 시 full_exit 전환."""
+        state = make_state(
+            splits_used=40.0,
+            total_shares=150,
+            total_invested=6000.0,
+            avg_price=40.0,
+            over40_strategy="quarter",
+            quarter_used=True,
+        )
+        action = calculate_daily_action(state, current_price=35.0, existing_shares=150)
+
+        assert action.over40_action == "full_exit"
+        assert action.full_exit_qty == 150
+        assert "전량 매도" in action.skip_reason
 
     def test_quarter_after_executed_resumes_normal(self):
         """quarter 매도 완료 후 pending_sell False → 일반 주문 재개."""
