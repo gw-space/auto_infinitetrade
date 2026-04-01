@@ -146,6 +146,9 @@ def load_config(
     alerts = AlertConfig(
         max_drawdown_pct=float(alert.get("max_drawdown_pct", 0.20)),
         order_retry_count=int(alert.get("order_retry_count", 3)),
+        max_order_qty=int(alert.get("max_order_qty", 10)),
+        max_daily_orders=int(alert.get("max_daily_orders", 2)),
+        auto_pause_drawdown_pct=float(alert.get("auto_pause_drawdown_pct", 0.30)),
     )
 
     # 백업 설정

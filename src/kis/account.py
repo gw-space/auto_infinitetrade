@@ -90,8 +90,13 @@ async def get_holdings(client: KISClient, symbol: str | None = None) -> list[Hol
     return holdings
 
 
-async def get_available_cash(client: KISClient) -> float:
-    """해외주식 주문 가능 금액(USD)을 조회한다."""
+async def get_available_cash(client: KISClient, symbol: str = "TQQQ") -> float:
+    """해외주식 주문 가능 금액(USD)을 조회한다.
+
+    Args:
+        client: KIS API 클라이언트
+        symbol: 종목 코드 (실전 API에서 필수)
+    """
     # 실전: TTTS3007R, 모의: VTTS3007R
     tr_id = "VTTS3007R" if client.is_paper else "TTTS3007R"
 
@@ -100,7 +105,7 @@ async def get_available_cash(client: KISClient) -> float:
         "ACNT_PRDT_CD": client.account_suffix,
         "OVRS_EXCG_CD": "NASD",
         "OVRS_ORD_UNPR": "0",
-        "ITEM_CD": "",
+        "ITEM_CD": symbol,
     }
 
     data = await client.get(

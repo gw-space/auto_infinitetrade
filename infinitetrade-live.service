@@ -1,0 +1,14 @@
+[Unit]
+Description=InfiniteTrade Bot (Live)
+After=network.target
+
+[Service]
+User=gwyoon
+WorkingDirectory=/home/gwyoon/auto_infinitetrade
+ExecStart=/home/gwyoon/auto_infinitetrade/.venv/bin/python -m src.main .env.live
+Restart=always
+RestartSec=10
+Environment=TZ=US/Eastern
+
+[Install]
+WantedBy=multi-user.target

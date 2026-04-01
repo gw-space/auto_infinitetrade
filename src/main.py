@@ -233,7 +233,7 @@ class TradingBot:
                 exchange = ticker_config.exchange
 
                 try:
-                    cash = await get_available_cash(self.kis)
+                    cash = await get_available_cash(self.kis, symbol)
                     initial_capital = min(cash, ticker_config.total_capital) if cash > 0 else ticker_config.total_capital
                 except Exception:
                     initial_capital = ticker_config.total_capital
@@ -403,7 +403,7 @@ class TradingBot:
 
         # 첫 사이클: 잔고와 설정 상한 중 작은 값 사용
         try:
-            cash = await get_available_cash(self.kis)
+            cash = await get_available_cash(self.kis, symbol)
             initial_capital = min(cash, ticker_config.total_capital) if cash > 0 else ticker_config.total_capital
         except Exception:
             initial_capital = ticker_config.total_capital
@@ -785,7 +785,7 @@ class TradingBot:
             residual = holdings[0].quantity if holdings else 0
 
             # 새 사이클: 잔고 기반 자본금 (상한선 적용)
-            available_cash = await get_available_cash(self.kis)
+            available_cash = await get_available_cash(self.kis, symbol)
             capital_limit = next(
                 (t.total_capital for t in self.config.tickers if t.symbol == symbol), 0
             )
