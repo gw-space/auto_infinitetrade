@@ -123,7 +123,7 @@ class TelegramBot:
         ]
 
         if action.is_cold_start:
-            lines.append(f"  시장가 매수: {action.cold_start_qty}주 (1회차)")
+            lines.append(f"  즉시 매수: {action.cold_start_qty}주 (1회차)")
         else:
             if action.loc_buy_avg_qty > 0:
                 lines.append(

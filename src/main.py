@@ -17,8 +17,8 @@ from src.kis.account import get_holdings, get_executions, get_available_cash
 from src.kis.order import (
     place_loc_buy,
     place_limit_sell,
-    place_market_buy,
-    place_market_sell,
+    place_immediate_buy,
+    place_immediate_sell,
 )
 from src.strategy.infinite_buy import (
     calculate_daily_action,
@@ -153,13 +153,31 @@ class TradingBot:
         check_h, check_m = self.config.schedule.check_time.split(":")
         report_h, report_m = self.config.schedule.report_time.split(":")
 
-        # 매일 주문 실행 (US Eastern)
-        self.scheduler.add_job(
-            self._daily_order_job,
-            CronTrigger(hour=int(order_h), minute=int(order_m), day_of_week="mon-fri"),
-            id="daily_order",
-            name="일일 주문",
-        )
+        if self.config.kis.is_paper:
+            # 모의투자: LOC 시뮬레이션
+            # 09:35  LOC 주문 의도 생성 (실제 주문 X)
+            # 15:30  현재가로 체결 판정 → 체결분만 지정가 주문
+            self.scheduler.add_job(
+                self._paper_plan_job,
+                CronTrigger(hour=int(order_h), minute=int(order_m), day_of_week="mon-fri"),
+                id="paper_plan",
+                name="LOC 의도 생성 (모의)",
+            )
+            self.scheduler.add_job(
+                self._paper_execute_job,
+                CronTrigger(hour=15, minute=30, day_of_week="mon-fri"),
+                id="paper_execute",
+                name="LOC 체결 판정 (모의)",
+            )
+            logger.info(f"모의투자 모드: 의도생성 {order_h}:{order_m} / 체결판정 15:30 (ET)")
+        else:
+            # 실전: LOC 주문 직접 실행
+            self.scheduler.add_job(
+                self._daily_order_job,
+                CronTrigger(hour=int(order_h), minute=int(order_m), day_of_week="mon-fri"),
+                id="daily_order",
+                name="일일 주문",
+            )
 
         # 마감 후 체결 확인
         self.scheduler.add_job(
@@ -195,7 +213,166 @@ class TradingBot:
 
         logger.info("스케줄 등록 완료")
 
-    # === 일일 주문 ===
+    # === 모의투자 LOC 시뮬레이션 ===
+
+    async def _paper_plan_job(self) -> None:
+        """모의투자: LOC 주문 의도를 생성한다 (실제 주문 X)."""
+        today = date.today().isoformat()
+
+        if not is_trading_day():
+            logger.info(f"{today}: 휴장일, 스킵")
+            return
+
+        try:
+            await ensure_token(self.kis)
+
+            for ticker_config in self.config.tickers:
+                symbol = ticker_config.symbol
+                exchange = ticker_config.exchange
+
+                try:
+                    cash = await get_available_cash(self.kis)
+                    initial_capital = min(cash, ticker_config.total_capital) if cash > 0 else ticker_config.total_capital
+                except Exception:
+                    initial_capital = ticker_config.total_capital
+
+                state = get_or_create_state(
+                    self.states, symbol, initial_capital,
+                    ticker_config.num_splits, ticker_config.profit_target_pct, today,
+                )
+                state.over40_strategy = self.config.over40_strategy
+
+                if state.last_order_date == today:
+                    logger.info(f"{symbol}: 오늘 이미 주문 의도 생성됨, 스킵")
+                    continue
+
+                current_price = await get_current_price(self.kis, symbol, exchange)
+                holdings = await get_holdings(self.kis, symbol)
+                existing_shares = holdings[0].quantity if holdings else 0
+
+                action = calculate_daily_action(state, current_price, existing_shares)
+
+                # 1회차: 즉시 지정가 매수 (LOC 불필요)
+                if action.is_cold_start:
+                    state.last_order_date = today
+                    save_states(self.states)
+
+                    if not state.is_dryrun:
+                        result = await place_immediate_buy(
+                            self.kis, symbol, exchange, action.cold_start_qty, current_price
+                        )
+                        if not result.success:
+                            await self.telegram.notify_order_failure(
+                                symbol, self.config.alerts.order_retry_count, result.message
+                            )
+                    await self.telegram.notify_order_placed(state, action)
+                    continue
+
+                # 40회차 전략은 즉시 실행
+                if action.over40_action:
+                    await self._execute_over40_strategy(state, action, exchange, current_price, today)
+                    continue
+
+                if action.should_skip:
+                    logger.info(f"{symbol}: {action.skip_reason}")
+                    continue
+
+                # 지정가 매도는 즉시 주문 (LOC 아님)
+                if action.limit_sell_qty > 0 and not state.is_dryrun:
+                    await place_limit_sell(
+                        self.kis, symbol, exchange,
+                        action.limit_sell_qty, action.limit_sell_price,
+                    )
+
+                # LOC 매수 의도만 저장 (15:30에 체결 판정)
+                plan = {
+                    "avg_qty": action.loc_buy_avg_qty,
+                    "avg_price": action.loc_buy_avg_price,
+                    "high_qty": action.loc_buy_high_qty,
+                    "high_price": action.loc_buy_high_price,
+                }
+                state.paper_loc_plan = plan
+                state.last_order_date = today
+                save_states(self.states)
+
+                await self.telegram.send_message(
+                    f"📋 <b>[{symbol}] 주문 (모의)</b>\n\n"
+                    f"  LOC 평단: ${plan['avg_price']:.2f} x {plan['avg_qty']}주 (장종료 30분전 판정)\n"
+                    f"  LOC 고가: ${plan['high_price']:.2f} x {plan['high_qty']}주 (장종료 30분전 판정)\n"
+                    f"  지정가 매도: ${action.limit_sell_price:.2f} x {action.limit_sell_qty}주 (즉시 주문)"
+                )
+                logger.info(f"{symbol}: 매도 주문 완료 + LOC 의도 저장")
+
+        except Exception as e:
+            logger.error(f"LOC 의도 생성 오류: {e}", exc_info=True)
+            await self.telegram.notify_error("LOC 의도 생성 오류 발생. 로그를 확인하세요.")
+
+    async def _paper_execute_job(self) -> None:
+        """모의투자: 15:30 현재가로 LOC 체결 판정 → 체결분만 지정가 주문."""
+        today = date.today().isoformat()
+
+        if not is_trading_day():
+            return
+
+        try:
+            await ensure_token(self.kis)
+
+            for ticker_config in self.config.tickers:
+                symbol = ticker_config.symbol
+                exchange = ticker_config.exchange
+                state = self.states.tickers.get(symbol)
+
+                if not state or not state.paper_loc_plan:
+                    continue
+
+                plan = state.paper_loc_plan
+                if not plan.get("avg_qty") and not plan.get("high_qty") and not plan.get("sell_qty"):
+                    continue
+
+                # 현재가 = 가상 종가
+                closing_price = await get_current_price(self.kis, symbol, exchange)
+
+                filled = []
+
+                # LOC 평단 체결 판정: 종가 <= 평단가
+                if plan.get("avg_qty", 0) > 0 and closing_price <= plan["avg_price"]:
+                    if not state.is_dryrun:
+                        result = await place_loc_buy(
+                            self.kis, symbol, exchange, plan["avg_qty"], plan["avg_price"]
+                        )
+                        if result.success:
+                            filled.append(f"LOC 평단: {plan['avg_qty']}주 @ ${closing_price:.2f}")
+
+                # LOC 고가 체결 판정: 종가 <= 고가
+                if plan.get("high_qty", 0) > 0 and closing_price <= plan["high_price"]:
+                    if not state.is_dryrun:
+                        result = await place_loc_buy(
+                            self.kis, symbol, exchange, plan["high_qty"], plan["high_price"]
+                        )
+                        if result.success:
+                            filled.append(f"LOC 고가: {plan['high_qty']}주 @ ${closing_price:.2f}")
+
+                # 결과 알림 (매도는 09:35에 이미 주문됨)
+                if filled:
+                    msg = f"📊 <b>[{symbol}] LOC 체결 (모의)</b>\n\n  가상 종가: ${closing_price:.2f}\n\n"
+                    msg += "\n".join(f"  {f}" for f in filled)
+                else:
+                    msg = (
+                        f"📊 <b>[{symbol}] LOC 미체결 (모의)</b>\n\n"
+                        f"  가상 종가: ${closing_price:.2f}\n"
+                        f"  평단: ${plan.get('avg_price', 0):.2f} / 고가: ${plan.get('high_price', 0):.2f}"
+                    )
+                await self.telegram.send_message(msg)
+
+                # 의도 초기화
+                state.paper_loc_plan = {}
+                save_states(self.states)
+
+        except Exception as e:
+            logger.error(f"LOC 체결 판정 오류: {e}", exc_info=True)
+            await self.telegram.notify_error("LOC 체결 판정 오류 발생. 로그를 확인하세요.")
+
+    # === 일일 주문 (실전) ===
 
     async def _daily_order_job(self) -> None:
         """매일 주문을 실행한다."""
@@ -252,16 +429,56 @@ class TradingBot:
         holdings = await get_holdings(self.kis, symbol)
         existing_shares = holdings[0].quantity if holdings else 0
 
-        # 낙폭 경고 체크
+        # 낙폭 체크
         if state.avg_price > 0 and existing_shares > 0:
             drawdown = (current_price - state.avg_price) / state.avg_price
+
+            # 자동 일시중지 (설정값 이상 하락 시)
+            if drawdown <= -self.config.alerts.auto_pause_drawdown_pct:
+                state.is_paused = True
+                save_states(self.states)
+                await self.telegram.send_message(
+                    f"🚨 <b>[{symbol}] 자동 일시중지!</b>\n\n"
+                    f"  낙폭: {drawdown * 100:+.2f}% (한도: -{self.config.alerts.auto_pause_drawdown_pct * 100:.0f}%)\n"
+                    f"  현재가: ${current_price:.2f} / 평단: ${state.avg_price:.2f}\n\n"
+                    f"  /resume 으로 재개하세요."
+                )
+                logger.warning(f"{symbol}: 자동 일시중지 (낙폭 {drawdown*100:.1f}%)")
+                return
+
+            # 경고만 (auto_pause 미만)
             if drawdown <= -self.config.alerts.max_drawdown_pct:
                 await self.telegram.notify_drawdown_warning(
                     state, current_price, drawdown * 100
                 )
 
+        # 안전장치: 일일 주문 횟수 제한
+        if state.daily_order_date != today:
+            state.daily_order_count = 0
+            state.daily_order_date = today
+        if state.daily_order_count >= self.config.alerts.max_daily_orders:
+            logger.warning(f"{symbol}: 일일 최대 주문 횟수({self.config.alerts.max_daily_orders}) 초과, 중단")
+            await self.telegram.send_message(
+                f"🚨 <b>[{symbol}] 일일 주문 횟수 초과!</b>\n"
+                f"  {state.daily_order_count}회 주문됨 (한도: {self.config.alerts.max_daily_orders}회)\n"
+                f"  오늘 추가 주문이 중단됩니다."
+            )
+            return
+
         # 전략 판단
         action = calculate_daily_action(state, current_price, existing_shares)
+
+        # 안전장치: 최대 주문 수량 제한
+        max_qty = self.config.alerts.max_order_qty
+        if action.cold_start_qty > max_qty:
+            action.cold_start_qty = max_qty
+            logger.warning(f"{symbol}: 1회차 수량 {action.cold_start_qty}→{max_qty} 제한")
+        if action.loc_buy_avg_qty > max_qty:
+            action.loc_buy_avg_qty = max_qty
+            logger.warning(f"{symbol}: LOC 평단 수량 →{max_qty} 제한")
+        if action.loc_buy_high_qty > max_qty:
+            action.loc_buy_high_qty = max_qty
+            logger.warning(f"{symbol}: LOC 고가 수량 →{max_qty} 제한")
 
         if action.should_skip:
             logger.info(f"{symbol}: {action.skip_reason}")
@@ -284,9 +501,9 @@ class TradingBot:
 
         # 주문 실행
         if action.is_cold_start:
-            # 1회차: 시장가 매수
-            result = await place_market_buy(
-                self.kis, symbol, exchange, action.cold_start_qty
+            # 1회차: 즉시 지정가 매수
+            result = await place_immediate_buy(
+                self.kis, symbol, exchange, action.cold_start_qty, current_price
             )
             if not result.success:
                 await self.telegram.notify_order_failure(
@@ -327,6 +544,9 @@ class TradingBot:
                         symbol, self.config.alerts.order_retry_count, result.message
                     )
 
+        # 주문 횟수 카운트
+        state.daily_order_count += 1
+
         # 알림 발송
         await self.telegram.notify_order_placed(state, action)
 
@@ -348,11 +568,13 @@ class TradingBot:
             return
 
         if strategy == "quarter" and not state.over40_executed:
-            # 1/4 시장가 매도
+            # 1/4 즉시 지정가 매도
             qty = action.quarter_sell_qty
-            result = await place_market_sell(self.kis, symbol, exchange, qty)
+            result = await place_immediate_sell(self.kis, symbol, exchange, qty, current_price)
             if result.success:
-                # 체결 후 상태 업데이트는 _daily_check_job에서 처리하지만
+                # 이중 처리 방지: order_id 등록
+                if result.order_id:
+                    state.processed_order_ids.append(result.order_id)
                 # quarter는 즉시 상태 반영이 필요
                 estimated_amount = current_price * qty
                 apply_quarter_sell_result(state, qty, estimated_amount)
@@ -363,8 +585,12 @@ class TradingBot:
                 )
             else:
                 await self.telegram.notify_order_failure(symbol, 3, result.message)
+                # quarter 실패 시 매도 주문도 안 넣음
+                state.last_order_date = today
+                save_states(self.states)
+                return
 
-            # 지정가 매도도 걸어둠
+            # quarter 성공 시 지정가 매도도 걸어둠
             if action.limit_sell_qty > 0:
                 await place_limit_sell(
                     self.kis, symbol, exchange,
@@ -399,12 +625,14 @@ class TradingBot:
             )
 
         elif strategy == "full_exit" and not state.over40_executed:
-            # 전량 시장가 매도
-            result = await place_market_sell(
-                self.kis, symbol, exchange, action.full_exit_qty
+            # 전량 즉시 지정가 매도
+            result = await place_immediate_sell(
+                self.kis, symbol, exchange, action.full_exit_qty, current_price
             )
             if result.success:
                 state.over40_executed = True
+                if result.order_id:
+                    state.processed_order_ids.append(result.order_id)
                 await self.telegram.notify_over40_strategy_result(
                     state, "full_exit",
                     f"{action.full_exit_qty}주 전량 매도 실행",
@@ -457,13 +685,14 @@ class TradingBot:
         for ex in executions:
             if ex.quantity <= 0:
                 continue
-            if ex.order_id in processed_ids:
+            if ex.order_id and ex.order_id in processed_ids:
                 continue
 
             update_state_after_fill(
                 state, ex.quantity, ex.price, ex.amount, ex.side
             )
-            processed_ids.add(ex.order_id)
+            if ex.order_id:
+                processed_ids.add(ex.order_id)
 
             fills.append({
                 "side": ex.side,
@@ -569,7 +798,7 @@ class TradingBot:
                 logger.info(f"{symbol}: 잔여 {residual}주 새 사이클에 편입")
 
         # 40회차 소진 체크
-        if state.splits_used >= state.num_splits and not state.pending_sell:
+        if (state.num_splits - state.splits_used) < 1.0 and not state.pending_sell:
             state.pending_sell = True
             await self.telegram.notify_40_splits_exhausted(state, current_price)
 
@@ -659,13 +888,19 @@ class TradingBot:
             (t.exchange for t in self.config.tickers if t.symbol == symbol), "NASD"
         )
 
-        result = await place_market_sell(
-            self.kis, symbol, exchange, holdings[0].quantity
+        # 강제 매도 시 현재가 조회 (모의투자 지정가 대체용)
+        try:
+            cur_price = await get_current_price(self.kis, symbol, exchange)
+        except Exception:
+            cur_price = holdings[0].current_price if holdings else 0.0
+
+        result = await place_immediate_sell(
+            self.kis, symbol, exchange, holdings[0].quantity, cur_price
         )
 
         if result.success:
             await self.telegram.send_message(
-                f"✅ {symbol}: {holdings[0].quantity}주 시장가 매도 주문 완료"
+                f"✅ {symbol}: {holdings[0].quantity}주 즉시 매도 주문 완료"
             )
         else:
             await self.telegram.notify_error(f"{symbol} 강제 매도 실패: {result.message}")
@@ -730,6 +965,8 @@ class TradingBot:
                     if actual_avg > 0:
                         state.avg_price = actual_avg
                         state.total_invested = actual_avg * actual_qty
+                        if state.split_amount > 0:
+                            state.splits_used = state.total_invested / state.split_amount
             except Exception as e:
                 logger.error(f"{symbol} reconciliation 실패: {e}")
 

@@ -35,11 +35,17 @@ class CycleState:
     over40_strategy: str = "quarter"  # 40회차 소진 전략
     over40_executed: bool = False     # 40회차 전략 실행 완료 여부
     quarter_used: bool = False        # quarter 이미 1회 사용 여부
+    # 모의투자 LOC 의도 저장 (당일만 유효)
+    daily_order_count: int = 0        # 당일 주문 횟수 (안전장치)
+    daily_order_date: str = ""        # 주문 횟수 카운트 날짜
+    paper_loc_plan: dict = None       # 모의투자 LOC 의도 저장
     processed_order_ids: list = None  # 처리 완료된 주문 ID 목록
 
     def __post_init__(self):
         if self.processed_order_ids is None:
             self.processed_order_ids = []
+        if self.paper_loc_plan is None:
+            self.paper_loc_plan = {}
 
 
 @dataclass

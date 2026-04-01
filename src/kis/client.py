@@ -114,26 +114,32 @@ class KISClient:
         tr_id: str,
         body: dict | None = None,
         max_retries: int = 3,
+        no_retry: bool = False,
     ) -> dict:
-        """POST 요청. 재시도 포함."""
+        """POST 요청.
+
+        Args:
+            no_retry: True면 재시도 없이 1회만 시도 (주문 엔드포인트용).
+        """
         url = f"{self.base_url}{path}"
         headers = self._build_headers(tr_id)
+        attempts = 1 if no_retry else max_retries
 
-        for attempt in range(max_retries):
+        for attempt in range(attempts):
             try:
                 resp = await self._client.post(url, headers=headers, json=body or {})
                 resp.raise_for_status()
                 data = resp.json()
                 self._check_response(data)
                 return data
-            except (httpx.HTTPStatusError, httpx.ConnectError) as e:
-                if attempt == max_retries - 1:
+            except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as e:
+                if attempt == attempts - 1:
                     raise KISAPIError(
-                        f"POST {path} 실패 (재시도 {max_retries}회): "
+                        f"POST {path} 실패: "
                         f"status={getattr(getattr(e, 'response', None), 'status_code', 'N/A')}"
                     )
                 wait = 2 ** attempt
-                logger.warning(f"POST {path} 재시도 {attempt + 1}/{max_retries} ({wait}s 후)")
+                logger.warning(f"POST {path} 재시도 {attempt + 1}/{attempts} ({wait}s 후)")
                 await self._async_sleep(wait)
 
         raise KISAPIError(f"POST {path} 최대 재시도 초과")

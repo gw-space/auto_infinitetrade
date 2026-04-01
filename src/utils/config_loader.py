@@ -32,6 +32,9 @@ class ScheduleConfig:
 class AlertConfig:
     max_drawdown_pct: float = 0.20
     order_retry_count: int = 3
+    max_order_qty: int = 10           # 1회 최대 주문 수량 안전장치 (LOC 평단/고가 각각)
+    max_daily_orders: int = 2         # 일일 최대 주문 횟수 안전장치 (정상=1, 2회째 차단)
+    auto_pause_drawdown_pct: float = 0.30  # 자동 일시중지 낙폭 (30%)
 
 
 @dataclass

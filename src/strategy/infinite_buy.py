@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 class DailyAction:
     """매일 수행할 주문 액션."""
     # 주문 정보
-    is_cold_start: bool = False     # 1회차 (시장가 매수)
-    cold_start_qty: int = 0         # 1회차 시장가 매수 수량
+    is_cold_start: bool = False     # 1회차 (즉시 지정가 매수)
+    cold_start_qty: int = 0         # 1회차 매수 수량
 
     loc_buy_avg_qty: int = 0        # LOC 매수(평단) 수량
     loc_buy_avg_price: float = 0.0  # LOC 매수(평단) 가격
@@ -77,7 +77,7 @@ def calculate_daily_action(
     if state.pending_sell:
         return _handle_over40(state, action, current_price, existing_shares)
 
-    # 1회차: 시장가 매수 (평균단가 없으므로)
+    # 1회차: 즉시 지정가 매수 (평균단가 없으므로 LOC 불가)
     if state.splits_used == 0 and existing_shares == 0:
         one_round_amount = state.split_amount  # 1회차 전체
         qty = math.floor(one_round_amount / current_price)
@@ -177,10 +177,10 @@ def _handle_over40(
         if not state.over40_executed:
             state.profit_target_pct = 0.05
             state.over40_executed = True
-            action.over40_action = "lower_target"
             logger.info(f"{state.symbol}: 목표 수익률 5%로 하향 조정")
 
-        # 하향된 목표가로 지정가 매도 유지
+        # 매일 over40_action 세팅 (일반 LOC 매수로 빠지지 않도록)
+        action.over40_action = "lower_target"
         new_target = round(state.avg_price * (1 + state.profit_target_pct), 2)
         action.limit_sell_qty = existing_shares
         action.limit_sell_price = new_target

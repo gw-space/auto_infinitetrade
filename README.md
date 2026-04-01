@@ -9,16 +9,17 @@
 
 ### 기본 규칙
 - 총 투자금을 **40분할**로 나눔 (1회차 = 총자금 / 40)
-- 매일 1회차를 **0.5회차씩 2건의 LOC 매수**로 나눠서 주문
+- 1회차: 현재가 지정가 매수 (1회차 전체 금액)
+- 2회차~: 매일 **0.5회차씩 2건의 LOC 매수** 주문
 - 목표 수익률(기본 10%) 도달 시 전량 매도 후 새 사이클 시작
 
 ### 매일 주문 (3건)
 
 | 주문 | 가격 | 수량 | 체결 조건 |
 |------|------|------|-----------|
-| LOC 매수 (평단) | 평균단가 | 0.5회차 분 | 종가 <= 평균단가 |
-| LOC 매수 (고가) | 목표 익절가 | 0.5회차 분 | 종가 <= 목표 익절가 |
-| 지정가 매도 | 목표 익절가 | 전량 (Day) | 장중 목표가 도달 시 |
+| LOC 매수 (평단) | 평균단가 | 0.5회차 분 (floor) | 종가 <= 평균단가 |
+| LOC 매수 (고가) | 목표 익절가 | 0.5회차 분 (floor) | 종가 <= 목표 익절가 |
+| 지정가 매도 | 목표 익절가 | 전량 (Day Order) | 장중 목표가 도달 시 |
 
 ### 체결 시나리오
 
@@ -29,14 +30,23 @@
 | 종가 > 고가 | LOC 미체결, 지정가 매도 체결 가능 (익절) |
 
 ### 40회차 소진 전략
-40분할을 모두 사용했는데 익절이 안 된 경우, 환경변수로 4가지 전략 중 선택:
+남은 분할이 1회차 미만이면 40회차 소진으로 판단. 환경변수로 4가지 전략 중 선택:
 
 | 전략 | 동작 |
 |------|------|
-| `quarter` (기본) | 보유분 1/4 매도 -> 시드 재확보 -> 매수 재개 |
-| `lower_target` | 목표 수익률을 5%로 하향 |
+| `quarter` (기본) | 보유분 1/4 매도 -> 시드 재확보 -> 매수 재개 (1회만, 재소진 시 full_exit) |
+| `lower_target` | 목표 수익률을 5%로 하향, 매도만 유지 |
 | `hold` | 매수 중단, 지정가 매도만 유지 |
 | `full_exit` | 전량 매도 후 새 사이클 |
+
+### KIS API 주문 코드 (미국 해외주식)
+
+| 주문 유형 | 실전 ORD_DVSN | 모의투자 ORD_DVSN |
+|----------|--------------|-----------------|
+| LOC 매수 | `34` (장마감지정가) | `00` (지정가 대체) |
+| 지정가 매도 (익절) | `00` | `00` |
+| 즉시 매수 (1회차) | `00` (현재가+2%) | `00` (현재가+2%) |
+| 즉시 매도 (강제/quarter/full_exit) | `00` (현재가-2%) | `00` (현재가-2%) |
 
 ---
 
@@ -47,12 +57,25 @@
 - 멀티 종목 지원 (종목별 독립 사이클)
 - 텔레그램 알림 (주문, 체결, 익절, 낙폭 경고, 에러)
 - 텔레그램 명령어 (`/status`, `/sell`, `/pause`, `/resume`, `/report`, `/dryrun`)
-- 구글 스프레드시트 기록 (일별 기록 + 사이클 요약 + 월간 백업)
+- 구글 스프레드시트 기록 (일별 기록 + 사이클 요약 + 연간 백업)
 - 수익률 차트 생성 (주간/월간)
 - USD/KRW 환율 자동 기록
 - 드라이런 모드 (실주문 없이 시뮬레이션)
 - 모의투자/실전투자 토글
 - 상시 실행 봇 (텔레그램 명령어 수신 + APScheduler 자동 주문)
+
+### 안전장치
+
+| 장치 | 동작 | 기본값 |
+|------|------|--------|
+| 하루 1회 주문 | `last_order_date` 체크 | - |
+| 일일 주문 횟수 제한 | 초과 시 중단 + 알림 | 2회 |
+| 최대 주문 수량 | LOC 평단/고가 각각 수량 캡 | 10주 |
+| 자동 일시중지 | 낙폭 초과 시 자동 `/pause` | -30% |
+| 낙폭 경고 | 텔레그램 알림 (매매 계속) | -20% |
+| 체결 이중 처리 방지 | `processed_order_ids` | - |
+| 주문 재시도 금지 | `no_retry=True` (중복 주문 방지) | - |
+| 2단계 매도 확인 | `/sell` -> `/confirm_sell` (30초) | - |
 
 ---
 
@@ -62,7 +85,7 @@
 
 1. [한국투자증권](https://www.koreainvestment.com) 계좌 개설
 2. [KIS Developers](https://apiportal.koreainvestment.com) 에서 Open API 신청
-3. **모의투자** API Key 발급 (APP Key, APP Secret)
+3. **모의투자** API Key 발급 (APP Key, APP Secret) - 먼저 모의투자로 테스트
 4. 해외주식 거래 가능 계좌 확인
 
 ### 2. 텔레그램 봇
@@ -80,7 +103,7 @@
 3. `API 및 서비스` > `라이브러리`에서 **Google Sheets API** + **Google Drive API** 활성화
 4. `IAM 및 관리자` > `서비스 계정` > `서비스 계정 만들기`
 5. `키` 탭 > `키 추가` > `새 키 만들기` > **JSON** 선택 > 다운로드
-6. 구글 스프레드시트 생성 (빈 시트, 이름 자유)
+6. 구글 스프레드시트 생성 (빈 시트, 이름 자유 - 프로그램이 탭을 자동 생성)
 7. 스프레드시트 공유: JSON 파일의 `client_email`을 **편집자**로 추가
 8. 스프레드시트 URL에서 ID 확인: `https://docs.google.com/spreadsheets/d/여기가ID/edit`
 
@@ -91,11 +114,9 @@
 ### 방법 1: 직접 실행 (라즈베리파이, 리눅스 서버)
 
 ```bash
-# 클론
-git clone https://github.com/gw-space/auto-infinitetrade.git
-cd auto-infinitetrade
+git clone https://github.com/gw-space/auto_infinitetrade.git
+cd auto_infinitetrade
 
-# 가상환경 생성 + 패키지 설치
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -104,8 +125,8 @@ pip install -r requirements.txt
 ### 방법 2: Docker
 
 ```bash
-git clone https://github.com/gw-space/auto-infinitetrade.git
-cd auto-infinitetrade
+git clone https://github.com/gw-space/auto_infinitetrade.git
+cd auto_infinitetrade
 docker compose build
 ```
 
@@ -161,15 +182,15 @@ schedule:
 
 alerts:
   max_drawdown_pct: 0.20    # 낙폭 경고 기준 (-20%)
-  order_retry_count: 3      # 주문 실패 재시도
+  max_order_qty: 10         # 1회 최대 주문 수량 (LOC 평단/고가 각각)
+  max_daily_orders: 2       # 일일 최대 주문 횟수 (정상=1, 2회째 차단)
+  auto_pause_drawdown_pct: 0.30  # 자동 일시중지 낙폭 (-30%)
 
 backup:
-  monthly_day: 1            # 월간 백업일
+  monthly_day: 1            # 백업 체크일 (매년 1월에 연간 백업 생성)
 ```
 
 ### 3. 구글 서비스 계정 키
-
-다운로드한 JSON 파일을 `credentials/` 폴더에 배치:
 
 ```bash
 cp ~/Downloads/프로젝트명-xxxxx.json credentials/service_account.json
@@ -207,8 +228,8 @@ After=network.target
 
 [Service]
 User=pi
-WorkingDirectory=/home/pi/auto-infinitetrade
-ExecStart=/home/pi/auto-infinitetrade/.venv/bin/python -m src.main
+WorkingDirectory=/home/pi/auto_infinitetrade
+ExecStart=/home/pi/auto_infinitetrade/.venv/bin/python -m src.main
 Restart=always
 RestartSec=10
 Environment=TZ=US/Eastern
@@ -222,6 +243,64 @@ sudo systemctl enable infinitetrade
 sudo systemctl start infinitetrade
 sudo systemctl status infinitetrade   # 상태 확인
 sudo journalctl -u infinitetrade -f   # 로그 확인
+```
+
+---
+
+## 모의투자 테스트
+
+실전 투입 전 반드시 모의투자로 테스트하세요.
+
+### 모의투자 vs 실전 차이
+
+| | 모의투자 (KIS_ENV=paper) | 실전 (KIS_ENV=live) |
+|--|--------------------------|---------------------|
+| LOC 매수 | 지정가(00)로 대체 | LOC(34) 사용 |
+| 즉시 매수/매도 | 지정가(00) 현재가+/-2% | 지정가(00) 현재가+/-2% |
+| LOC 시뮬레이션 | 09:35 의도 생성 -> 15:30 체결 판정 | 09:35 LOC 주문 -> 종가 체결 |
+| 스케줄 | 09:35 의도 / 15:30 판정 / 16:15 체결확인 | 09:35 주문 / 16:15 체결확인 |
+
+### 모의투자 LOC 시뮬레이션 흐름
+
+KIS 모의투자에서는 LOC(34) 주문을 지원하지 않으므로, 장 종료 30분 전을 가상 장 마감으로 간주하여 LOC를 시뮬레이션합니다:
+
+```
+09:35 ET  LOC 주문 의도 생성 (실제 주문 X)
+          ├── 1회차 → 즉시 지정가 매수 (현재가+2%)
+          ├── 지정가 매도 → 즉시 주문 (목표 익절가)
+          └── LOC 매수 → 평단가/고가/수량 저장만
+
+15:30 ET  가상 장 마감 (체결 판정)
+          ├── 현재가 조회 (= 가상 종가)
+          ├── 가상종가 <= 평단가 → LOC 평단 체결 → 지정가 매수
+          ├── 가상종가 <= 고가 → LOC 고가 체결 → 지정가 매수
+          └── 텔레그램: 체결/미체결 결과
+
+16:15 ET  체결 확인 + 구글 시트 기록
+16:30 ET  일일 리포트
+```
+
+### 모의투자 테스트 절차
+
+1. `.env`에서 `KIS_ENV=paper` 설정
+2. 봇 실행: `python -m src.main`
+3. 확인 사항:
+   - 텔레그램 "봇 시작됨" 수신
+   - `/status` 응답 정상
+   - 09:35 ET에 LOC 의도 생성 텔레그램 알림
+   - 15:30 ET에 체결 판정 텔레그램 알림
+   - 구글 시트 기록 확인
+4. 최소 3영업일 운영 후 실전 전환
+
+### 실전 전환
+
+```bash
+# .env 수정
+KIS_ENV=live
+
+# KIS 실전투자 API 키로 변경
+KIS_APP_KEY=실전_앱키
+KIS_APP_SECRET=실전_앱시크릿
 ```
 
 ---
@@ -246,12 +325,13 @@ sudo journalctl -u infinitetrade -f   # 로그 확인
 
 ## 동작 흐름
 
-### 일일 자동 실행
+### 실전 일일 자동 실행
 
 ```
 09:35 ET  주문 실행
           ├── 현재가 조회
           ├── 잔고 조회 + 상태 동기화
+          ├── 낙폭 체크 (-30% 시 자동 일시중지)
           ├── 전략 판단 (매수/매도/홀딩)
           ├── LOC 매수(평단) 0.5회차 주문
           ├── LOC 매수(고가) 0.5회차 주문
@@ -259,7 +339,7 @@ sudo journalctl -u infinitetrade -f   # 로그 확인
           └── 텔레그램 알림
 
 16:15 ET  체결 확인
-          ├── 체결 내역 조회
+          ├── 체결 내역 조회 (이중 처리 방지)
           ├── 상태 업데이트 (평단, 수량, 분할)
           ├── 구글 시트 기록
           ├── 익절 체결 시 → 사이클 종료 → 새 사이클
@@ -271,16 +351,17 @@ sudo journalctl -u infinitetrade -f   # 로그 확인
 ### 사이클 흐름
 
 ```
-사이클 시작 (1회차: 시장가 매수)
-    ↓
+사이클 시작 (1회차: 현재가 지정가 매수)
+    |
 매일 LOC 주문 반복 (2~40회차)
-    ↓
+    |
 [분기]
 ├── 익절가 도달 → 전량 매도 → 수익 포함 새 사이클
-└── 40회차 소진 → OVER40_STRATEGY 실행
-    ├── quarter: 1/4 매도 → 매수 재개
-    ├── lower_target: 목표 5%로 하향
-    ├── hold: 매도만 유지
+└── 40회차 소진 (남은 분할 < 1.0) → OVER40_STRATEGY 실행
+    ├── quarter: 1/4 매도 → 매수 재개 (1회만)
+    │   └── 재소진 → full_exit 전환
+    ├── lower_target: 목표 5%로 하향, 매도만 유지
+    ├── hold: 매수 중단, 매도만 유지
     └── full_exit: 전량 매도 → 새 사이클
 ```
 
@@ -323,20 +404,17 @@ sudo journalctl -u infinitetrade -f   # 로그 확인
 | 컬럼 | 설명 |
 |------|------|
 | 사이클 | 사이클 번호 |
-| 시작일 | 사이클 시작 날짜 |
-| 종료일 | 사이클 종료 날짜 |
+| 시작일 ~ 종료일 | 사이클 기간 |
 | 종목 | 티커 |
-| 투입총액(USD) | 총 매수 금액 |
-| 매도총액(USD) | 총 매도 금액 |
-| 총수익(USD) | 매도 - 투입 |
-| 총수익(KRW) | 원화 환산 수익 |
+| 투입총액 / 매도총액 | USD |
+| 총수익 (USD / KRW) | 손익 |
 | 수익률(%) | 수익률 |
-| 사용분할 | 사용한 분할 수 |
+| 사용분할 | n/40 |
 | 종료사유 | 익절 / 40회차 소진 등 |
 
-### 월간 백업
+### 연간 백업
 
-매월 1일 자동으로 백업 탭 생성 (예: `일별 기록_백업_2026-04`)
+매년 1월에 자동으로 백업 탭 생성 (예: `일별 기록_2026`). 데이터가 없으면 스킵.
 
 ---
 
@@ -349,40 +427,39 @@ source .venv/bin/activate
 python -m pytest tests/ -v
 ```
 
+### 라오어 규칙 1:1 대응 검증 (23개 규칙, 71건)
+
+```bash
+python scripts/test_laoor_rules.py
+```
+
+### 종합 시뮬레이션 (18개 시나리오, 54건)
+
+```bash
+python scripts/test_comprehensive.py
+```
+
 ### 시뮬레이터 (KIS API 없이)
 
 ```bash
-# 14개 시나리오 시뮬레이션
-python scripts/simulator.py
-
-# 3 사이클 연속 시뮬레이션
-python scripts/test_3cycles.py
-
-# 40회차 소진 전략 4종 비교
-python scripts/test_over40_all.py
+python scripts/simulator.py           # 14개 시나리오
+python scripts/test_3cycles.py        # 3사이클 연속
+python scripts/test_over40_all.py     # 40회차 전략 4종 비교
 ```
 
 ### 텔레그램 + 구글 시트 연동 테스트
 
 ```bash
-# 텔레그램만
-python scripts/test_integrations.py telegram
-
-# 구글 시트만
-python scripts/test_integrations.py sheets
-
-# 전부
-python scripts/test_integrations.py all
+python scripts/test_integrations.py telegram   # 텔레그램
+python scripts/test_integrations.py sheets     # 구글 시트
+python scripts/test_integrations.py all        # 전부
 ```
 
 ### 풀 사이클 시뮬레이션 (텔레그램 + 구글 시트 기록)
 
 ```bash
-# 정상 익절 사이클
-python scripts/test_full_cycle.py
-
-# Quarter 전략 발동 사이클
-python scripts/test_quarter_full.py
+python scripts/test_full_cycle.py      # 정상 익절 사이클
+python scripts/test_quarter_full.py    # Quarter 전략 사이클
 ```
 
 ---
@@ -390,16 +467,16 @@ python scripts/test_quarter_full.py
 ## 프로젝트 구조
 
 ```
-auto-infinitetrade/
+auto_infinitetrade/
 ├── config/
 │   └── settings.example.yaml     # 매매 설정 템플릿
 ├── src/
 │   ├── main.py                    # 메인 (봇 + 스케줄러)
 │   ├── kis/
 │   │   ├── auth.py                # OAuth 토큰 관리
-│   │   ├── client.py              # HTTP 클라이언트
+│   │   ├── client.py              # HTTP 클라이언트 (주문 재시도 금지)
 │   │   ├── market.py              # 현재가 조회
-│   │   ├── order.py               # LOC 매수 + 지정가 매도
+│   │   ├── order.py               # LOC 매수 + 지정가 매수/매도
 │   │   └── account.py             # 잔고/체결 조회
 │   ├── strategy/
 │   │   ├── infinite_buy.py        # 무한매수법 핵심 로직
@@ -407,15 +484,15 @@ auto-infinitetrade/
 │   ├── notifications/
 │   │   └── telegram.py            # 텔레그램 봇 + 알림
 │   ├── logging_sheet/
-│   │   └── sheets.py              # 구글 시트 기록
+│   │   └── sheets.py              # 구글 시트 기록 + 연간 백업
 │   ├── charts/
 │   │   └── renderer.py            # 수익률 차트 생성
 │   └── utils/
-│       ├── config_loader.py       # 설정 로더
+│       ├── config_loader.py       # 설정 로더 + 검증
 │       ├── market_calendar.py     # 미국 시장 캘린더
 │       └── exchange_rate.py       # USD/KRW 환율
 ├── scripts/                       # 시뮬레이터 + 테스트 스크립트
-├── tests/                         # 단위 테스트
+├── tests/                         # 단위 테스트 (32건)
 ├── data/                          # 상태 파일 (gitignore)
 ├── logs/                          # 로그 파일 (gitignore)
 ├── credentials/                   # 구글 서비스 계정 (gitignore)
@@ -434,7 +511,8 @@ auto-infinitetrade/
 ### 모의투자 먼저
 
 - `.env`에서 `KIS_ENV=paper`로 설정하여 **반드시 모의투자에서 먼저 테스트**
-- 최소 5영업일 이상 정상 동작 확인 후 `KIS_ENV=live`로 전환
+- 모의투자에서는 LOC 미지원 → 15:30 가상 장 마감으로 LOC 시뮬레이션
+- 최소 3영업일 이상 정상 동작 확인 후 `KIS_ENV=live`로 전환
 
 ### 보안
 
@@ -442,6 +520,7 @@ auto-infinitetrade/
 - 텔레그램 봇은 `TELEGRAM_CHAT_ID`로 인증된 사용자만 명령어 실행 가능
 - `/sell` 명령은 2단계 확인 (`/sell` -> `/confirm_sell`, 30초 제한)
 - 토큰/상태 파일은 `0o600` 권한으로 저장
+- 주문 API는 재시도 금지 (`no_retry=True`) — 중복 주문 방지
 
 ### 서머타임
 
@@ -453,6 +532,18 @@ auto-infinitetrade/
 - 놓친 거래일은 무시하고 다음 거래일부터 이어서 진행
 - 시작 시 KIS 실제 잔고와 state.json을 자동 동기화 (reconciliation)
 - 중복 주문 방지 (`last_order_date` 체크)
+- 네트워크 오류로 주문 실패해도 오늘은 패스, 내일 정상 진행
+
+### 멀티 종목
+
+- `settings.yaml`에 종목 추가하면 종목별 독립 사이클 운영
+- `total_capital` 합계가 계좌 잔고 이내가 되도록 설정
+- 같은 구글 시트에 기록 (종목 컬럼으로 구분)
+
+### 모의+실전 동시 운영
+
+- 봇 2개를 별도 디렉토리에서 실행 (설정 파일 분리)
+- 같은 구글 시트 공유 가능
 
 ---
 
