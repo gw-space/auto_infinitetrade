@@ -6,6 +6,7 @@ import logging.handlers
 import signal
 import sys
 from datetime import date, datetime
+from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -31,6 +32,7 @@ from src.strategy.state import (
     save_states,
     get_or_create_state,
     reset_cycle,
+    set_state_path,
 )
 from src.notifications.telegram import TelegramBot
 from src.logging_sheet.sheets import SheetsLogger
@@ -1037,10 +1039,38 @@ def setup_logging() -> None:
 
 
 def main():
-    """엔트리포인트."""
+    """엔트리포인트.
+
+    사용법:
+      python -m src.main                    # .env 사용 (기본)
+      python -m src.main .env.paper         # 모의투자
+      python -m src.main .env.live          # 실전투자
+    """
+    import sys as _sys
+
     setup_logging()
 
-    config = load_config()
+    env_path = _sys.argv[1] if len(_sys.argv) > 1 else ".env"
+    logger.info(f"환경 파일: {env_path}")
+
+    # .env.paper → "paper", .env.live → "live", .env → "default"
+    env_name = Path(env_path).suffix.lstrip(".") or "default"
+    set_state_path(env_name)
+
+    # settings.yaml도 환경별 분리: config/settings_paper.yaml, config/settings_live.yaml
+    if env_name != "default":
+        config_path = f"config/settings_{env_name}.yaml"
+    else:
+        config_path = "config/settings.yaml"
+
+    if not Path(config_path).exists():
+        # 환경별 파일 없으면 기본 파일 사용
+        config_path = "config/settings.yaml"
+        logger.info(f"환경별 설정 없음, 기본 사용: {config_path}")
+    else:
+        logger.info(f"설정 파일: {config_path}")
+
+    config = load_config(config_path=config_path, env_path=env_path)
     bot = TradingBot(config)
 
     asyncio.run(bot.start())

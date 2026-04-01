@@ -542,8 +542,59 @@ auto_infinitetrade/
 
 ### 모의+실전 동시 운영
 
-- 봇 2개를 별도 디렉토리에서 실행 (설정 파일 분리)
-- 같은 구글 시트 공유 가능
+하나의 코드베이스에서 환경별 설정 파일을 분리하여 동시 운영할 수 있습니다.
+
+#### 파일 구조
+
+```
+auto_infinitetrade/
+├── .env.paper              # 모의: KIS 모의 API 키, 텔레그램 봇A, 구글시트A
+├── .env.live               # 실전: KIS 실전 API 키, 텔레그램 봇B, 구글시트B
+├── config/
+│   ├── settings_paper.yaml # 모의: 종목, 자본금
+│   ├── settings_live.yaml  # 실전: 종목, 자본금
+│   └── settings.example.yaml
+├── data/
+│   ├── state_paper.json    # 자동 생성
+│   └── state_live.json     # 자동 생성
+└── src/
+```
+
+#### 실행 방법
+
+```bash
+# 모의투자
+python -m src.main .env.paper   # → settings_paper.yaml + state_paper.json
+
+# 실전투자
+python -m src.main .env.live    # → settings_live.yaml + state_live.json
+
+# 기본 (.env 하나로 운영)
+python -m src.main              # → settings.yaml + state.json
+```
+
+`.env.paper`를 인자로 주면 자동으로 `config/settings_paper.yaml`과 `data/state_paper.json`을 사용합니다. 환경별 settings 파일이 없으면 기본 `settings.yaml`을 사용합니다.
+
+#### systemd 서비스 (동시 운영)
+
+```ini
+# /etc/systemd/system/infinitetrade-paper.service
+[Service]
+ExecStart=/home/pi/auto_infinitetrade/.venv/bin/python -m src.main .env.paper
+
+# /etc/systemd/system/infinitetrade-live.service
+[Service]
+ExecStart=/home/pi/auto_infinitetrade/.venv/bin/python -m src.main .env.live
+```
+
+```bash
+sudo systemctl start infinitetrade-paper   # 모의투자
+sudo systemctl start infinitetrade-live    # 실전투자
+```
+
+#### 코드 업데이트
+
+코드가 하나이므로 `git pull` 한 번이면 양쪽 다 반영됩니다. 설정 파일(.env, settings yaml)은 gitignore 대상이므로 유지됩니다.
 
 ---
 

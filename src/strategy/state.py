@@ -9,7 +9,19 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-STATE_PATH = Path("data/state.json")
+STATE_PATH = Path("data/state.json")  # 기본값, set_state_path()로 변경 가능
+
+
+def set_state_path(env_name: str) -> None:
+    """환경에 따라 state 파일 경로를 분리한다.
+
+    Args:
+        env_name: 환경 이름 (예: "paper", "live")
+    """
+    global STATE_PATH
+    if env_name and env_name != "default":
+        STATE_PATH = Path(f"data/state_{env_name}.json")
+    logger.info(f"상태 파일: {STATE_PATH}")
 
 
 @dataclass
