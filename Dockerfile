@@ -20,4 +20,3 @@ RUN mkdir -p data logs \
 USER appuser
 
 CMD ["python", "-m", "src.main"]
-
