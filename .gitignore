@@ -39,3 +39,7 @@ Thumbs.db
 *.png
 config/settings.yaml
 *.zip
+
+# 일회성 점검 스크립트
+scripts/test_live_balance.py
+scripts/test_preflight.py
