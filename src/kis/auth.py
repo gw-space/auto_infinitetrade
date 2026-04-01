@@ -11,7 +11,15 @@ from src.kis.client import KISClient
 
 logger = logging.getLogger(__name__)
 
-TOKEN_CACHE_PATH = Path("data/token.json")
+TOKEN_CACHE_PATH = Path("data/token.json")  # 기본값, set_token_path()로 변경
+
+
+def set_token_path(env_name: str) -> None:
+    """환경에 따라 토큰 캐시 파일 경로를 분리한다."""
+    global TOKEN_CACHE_PATH
+    if env_name and env_name != "default":
+        TOKEN_CACHE_PATH = Path(f"data/token_{env_name}.json")
+    logger.info(f"토큰 캐시: {TOKEN_CACHE_PATH}")
 
 
 async def ensure_token(client: KISClient) -> None:

@@ -11,7 +11,7 @@ from pathlib import Path
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from src.kis.auth import ensure_token
+from src.kis.auth import ensure_token, set_token_path
 from src.kis.client import KISClient
 from src.kis.market import get_current_price
 from src.kis.account import get_holdings, get_executions, get_available_cash
@@ -1056,6 +1056,7 @@ def main():
     # .env.paper → "paper", .env.live → "live", .env → "default"
     env_name = Path(env_path).suffix.lstrip(".") or "default"
     set_state_path(env_name)
+    set_token_path(env_name)
 
     # settings.yaml도 환경별 분리: config/settings_paper.yaml, config/settings_live.yaml
     if env_name != "default":

@@ -11,7 +11,7 @@ tickers:
 # 스케줄 설정
 schedule:
   # 미장 개장 후 주문 시간 (US Eastern Time)
-  order_time: "09:35"
+  order_time: "09:45"
   # 마감 후 체결 확인 시간 (US Eastern Time)
   check_time: "16:15"
   # 일일 리포트 발송 시간 (US Eastern Time)
