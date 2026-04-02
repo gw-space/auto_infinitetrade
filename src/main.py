@@ -7,6 +7,7 @@ import signal
 import sys
 from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -219,7 +220,7 @@ class TradingBot:
 
     async def _paper_plan_job(self) -> None:
         """모의투자: LOC 주문 의도를 생성한다 (실제 주문 X)."""
-        today = date.today().isoformat()
+        today = datetime.now(ZoneInfo("US/Eastern")).strftime("%Y-%m-%d")
 
         if not is_trading_day():
             logger.info(f"{today}: 휴장일, 스킵")
@@ -311,7 +312,7 @@ class TradingBot:
 
     async def _paper_execute_job(self) -> None:
         """모의투자: 15:30 현재가로 LOC 체결 판정 → 체결분만 지정가 주문."""
-        today = date.today().isoformat()
+        today = datetime.now(ZoneInfo("US/Eastern")).strftime("%Y-%m-%d")
 
         if not is_trading_day():
             return
@@ -378,7 +379,7 @@ class TradingBot:
 
     async def _daily_order_job(self) -> None:
         """매일 주문을 실행한다."""
-        today = date.today().isoformat()
+        today = datetime.now(ZoneInfo("US/Eastern")).strftime("%Y-%m-%d")
 
         if not is_trading_day():
             logger.info(f"{today}: 휴장일, 스킵")
@@ -650,7 +651,7 @@ class TradingBot:
 
     async def _daily_check_job(self) -> None:
         """장 마감 후 체결 결과를 확인하고 상태를 업데이트한다."""
-        today = date.today().isoformat()
+        today = datetime.now(ZoneInfo("US/Eastern")).strftime("%Y-%m-%d")
 
         if not is_trading_day():
             return
@@ -1013,7 +1014,7 @@ class TradingBot:
 
     async def _check_missed_days(self) -> None:
         """놓친 거래일을 확인하고 알린다."""
-        today = date.today().isoformat()
+        today = datetime.now(ZoneInfo("US/Eastern")).strftime("%Y-%m-%d")
 
         for symbol, state in self.states.tickers.items():
             if state.last_order_date:

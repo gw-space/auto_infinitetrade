@@ -4,16 +4,22 @@ import logging
 from datetime import date, datetime, timedelta
 
 import exchange_calendars as xcals
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
 _calendar = xcals.get_calendar("XNYS")
 
 
+def _today_et() -> date:
+    """US/Eastern 기준 오늘 날짜를 반환한다."""
+    return datetime.now(ZoneInfo("US/Eastern")).date()
+
+
 def is_trading_day(d: date | None = None) -> bool:
     """주어진 날짜가 미국 시장 거래일인지 확인한다."""
     if d is None:
-        d = date.today()
+        d = _today_et()
 
     ts = datetime(d.year, d.month, d.day)
     result = _calendar.is_session(ts)
@@ -25,7 +31,7 @@ def is_trading_day(d: date | None = None) -> bool:
 def is_early_close(d: date | None = None) -> bool:
     """주어진 날짜가 조기 폐장일인지 확인한다."""
     if d is None:
-        d = date.today()
+        d = _today_et()
 
     ts = datetime(d.year, d.month, d.day)
     if not _calendar.is_session(ts):
@@ -39,7 +45,7 @@ def is_early_close(d: date | None = None) -> bool:
 def get_next_trading_day(d: date | None = None) -> date:
     """다음 거래일을 반환한다."""
     if d is None:
-        d = date.today()
+        d = _today_et()
 
     ts = datetime(d.year, d.month, d.day)
     sessions = _calendar.sessions_in_range(ts, ts + timedelta(days=10))

@@ -4,6 +4,7 @@ import logging
 from datetime import date, datetime
 
 import gspread
+from zoneinfo import ZoneInfo
 from google.oauth2.service_account import Credentials
 
 logger = logging.getLogger(__name__)
@@ -176,7 +177,7 @@ class SheetsLogger:
         try:
             self._connect()
 
-            now = datetime.now()
+            now = datetime.now(ZoneInfo("US/Eastern"))
             year = now.year
             month = now.month
 
