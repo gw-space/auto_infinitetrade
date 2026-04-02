@@ -20,7 +20,7 @@ CYCLE_SHEET_NAME = "사이클 요약"
 DAILY_HEADERS = [
     "사이클", "날짜", "종목", "현재가", "평균단가", "보유수량",
     "LOC 평단가", "LOC 고가", "액션", "체결수량", "체결금액",
-    "분할(사용/전체)", "수익률(%)", "USD/KRW", "원화수익률(%)",
+    "분할(사용/전체)", "수익률(%)", "USD/KRW",
     "평가금액", "실현손익", "비고",
 ]
 
@@ -100,8 +100,6 @@ class SheetsLogger:
         try:
             ws = self._get_or_create_sheet(DAILY_SHEET_NAME, DAILY_HEADERS)
 
-            krw_return_pct = return_pct  # 환율 변동 무시 (동일 기준)
-
             row = [
                 cycle_number,
                 today,
@@ -117,7 +115,6 @@ class SheetsLogger:
                 f"{splits_used:.1f}/{num_splits}",
                 f"{return_pct:.2f}",
                 f"{usd_krw_rate:.2f}" if usd_krw_rate > 0 else "-",
-                f"{krw_return_pct:.2f}" if usd_krw_rate > 0 else "-",
                 f"{eval_amount:.2f}",
                 f"{realized_pnl:.2f}",
                 notes,
