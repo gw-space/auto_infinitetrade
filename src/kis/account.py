@@ -2,6 +2,9 @@
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
+
+from zoneinfo import ZoneInfo
 
 from src.kis.client import KISClient
 
@@ -120,17 +123,28 @@ async def get_available_cash(client: KISClient, symbol: str = "TQQQ") -> float:
     return cash
 
 
-async def get_executions(client: KISClient, symbol: str | None = None) -> list[OrderExecution]:
-    """당일 체결 내역을 조회한다."""
+async def get_executions(
+    client: KISClient, symbol: str | None = None,
+) -> list[OrderExecution]:
+    """당일 체결 내역을 조회한다.
+
+    Args:
+        client: KIS API 클라이언트
+        symbol: 특정 종목만 조회 (None이면 전체)
+    """
     # 실전: TTTS3035R, 모의: VTTS3035R
     tr_id = "VTTS3035R" if client.is_paper else "TTTS3035R"
+
+    # KIS 서버는 KST 기준 — 프로세스 TZ와 무관하게 KST 날짜 사용
+    kst_now = datetime.now(ZoneInfo("Asia/Seoul"))
+    date_yyyymmdd = kst_now.strftime("%Y%m%d")
 
     params = {
         "CANO": client.account_prefix,
         "ACNT_PRDT_CD": client.account_suffix,
         "PDNO": symbol or "",
-        "ORD_STRT_DT": "",
-        "ORD_END_DT": "",
+        "ORD_STRT_DT": date_yyyymmdd,
+        "ORD_END_DT": date_yyyymmdd,
         "SLL_BUY_DVSN": "00",  # 전체
         "CCLD_NCCS_DVSN": "00",  # 전체
         "OVRS_EXCG_CD": "",
@@ -139,6 +153,10 @@ async def get_executions(client: KISClient, symbol: str | None = None) -> list[O
         "CTX_AREA_FK200": "",
         "CTX_AREA_NK200": "",
     }
+
+    # 모의투자는 ORD_DT 필드를 별도로 요구
+    if client.is_paper:
+        params["ORD_DT"] = date_yyyymmdd
 
     data = await client.get(
         "/uapi/overseas-stock/v1/trading/inquire-ccnl",

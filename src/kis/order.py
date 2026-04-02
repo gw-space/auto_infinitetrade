@@ -117,8 +117,8 @@ async def place_limit_sell(
             quantity=0, price=price,
         )
 
-    # 실전: TTTT1006U, 모의: VTTT1006U
-    tr_id = "VTTT1006U" if client.is_paper else "TTTT1006U"
+    # 실전: TTTT1006U, 모의: VTTT1001U (VTTT1006U는 모의 미지원)
+    tr_id = "VTTT1001U" if client.is_paper else "TTTT1006U"
 
     body = {
         "CANO": client.account_prefix,
@@ -262,7 +262,8 @@ async def place_immediate_sell(
             quantity=0, price=0.0,
         )
 
-    tr_id = "VTTT1006U" if client.is_paper else "TTTT1006U"
+    # 실전: TTTT1006U, 모의: VTTT1001U (VTTT1006U는 모의 미지원)
+    tr_id = "VTTT1001U" if client.is_paper else "TTTT1006U"
 
     # 현재가 -2%로 지정가 설정 (즉시 체결 보장)
     order_price = round(current_price * 0.98, 2)

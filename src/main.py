@@ -660,7 +660,11 @@ class TradingBot:
             usd_krw = await get_usd_krw_rate()
 
             for ticker_config in self.config.tickers:
-                await self._check_ticker_fills(ticker_config, today, usd_krw)
+                try:
+                    await self._check_ticker_fills(ticker_config, today, usd_krw)
+                except Exception as e:
+                    logger.error(f"{ticker_config.symbol} 체결 확인 오류: {e}", exc_info=True)
+                    await self.telegram.notify_error(f"{ticker_config.symbol} 체결 확인 오류 발생. 로그를 확인하세요.")
 
             save_states(self.states)
 
