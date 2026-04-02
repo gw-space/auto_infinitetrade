@@ -8,6 +8,9 @@ from zoneinfo import ZoneInfo
 
 from src.kis.client import KISClient
 
+# KIS 해외주식 API는 현지시간(US/Eastern) 기준 날짜를 사용
+_ET = ZoneInfo("US/Eastern")
+
 logger = logging.getLogger(__name__)
 
 
@@ -135,9 +138,9 @@ async def get_executions(
     # 실전: TTTS3035R, 모의: VTTS3035R
     tr_id = "VTTS3035R" if client.is_paper else "TTTS3035R"
 
-    # KIS 서버는 KST 기준 — 프로세스 TZ와 무관하게 KST 날짜 사용
-    kst_now = datetime.now(ZoneInfo("Asia/Seoul"))
-    date_yyyymmdd = kst_now.strftime("%Y%m%d")
+    # KIS 해외주식은 현지시간(ET) 기준 — 프로세스 TZ와 무관하게 ET 날짜 사용
+    et_now = datetime.now(_ET)
+    date_yyyymmdd = et_now.strftime("%Y%m%d")
 
     params = {
         "CANO": client.account_prefix,
