@@ -42,7 +42,7 @@ class KISClient:
         self._access_token: str = ""
         self._token_expires_at: float = 0.0
         self._client = httpx.AsyncClient(timeout=30.0)
-        self._min_interval = 0.35  # 초당 최대 ~2.8건 (3건 제한 여유분)
+        self._min_interval = 10.0  # 호출 간 최소 10초 간격
         self._last_request_at: float = 0.0
 
     @property
