@@ -239,72 +239,77 @@ class TradingBot:
                 except Exception:
                     initial_capital = ticker_config.total_capital
 
-                state = get_or_create_state(
-                    self.states, symbol, initial_capital,
-                    ticker_config.num_splits, ticker_config.profit_target_pct, today,
-                )
-                state.over40_strategy = self.config.over40_strategy
+                try:
+                    state = get_or_create_state(
+                        self.states, symbol, initial_capital,
+                        ticker_config.num_splits, ticker_config.profit_target_pct, today,
+                    )
+                    state.over40_strategy = self.config.over40_strategy
 
-                if state.last_order_date == today:
-                    logger.info(f"{symbol}: 오늘 이미 주문 의도 생성됨, 스킵")
-                    continue
+                    if state.last_order_date == today:
+                        logger.info(f"{symbol}: 오늘 이미 주문 의도 생성됨, 스킵")
+                        continue
 
-                current_price = await get_current_price(self.kis, symbol, exchange)
-                holdings = await get_holdings(self.kis, symbol)
-                existing_shares = holdings[0].quantity if holdings else 0
+                    current_price = await get_current_price(self.kis, symbol, exchange)
+                    holdings = await get_holdings(self.kis, symbol)
+                    existing_shares = holdings[0].quantity if holdings else 0
 
-                action = calculate_daily_action(state, current_price, existing_shares)
+                    action = calculate_daily_action(state, current_price, existing_shares)
 
-                # 1회차: 즉시 지정가 매수 (LOC 불필요)
-                if action.is_cold_start:
+                    # 1회차: 즉시 지정가 매수 (LOC 불필요)
+                    if action.is_cold_start:
+                        state.last_order_date = today
+                        save_states(self.states)
+
+                        if not state.is_dryrun:
+                            result = await place_immediate_buy(
+                                self.kis, symbol, exchange, action.cold_start_qty, current_price
+                            )
+                            if not result.success:
+                                await self.telegram.notify_order_failure(
+                                    symbol, self.config.alerts.order_retry_count, result.message
+                                )
+                        await self.telegram.notify_order_placed(state, action)
+                        continue
+
+                    # 40회차 전략은 즉시 실행
+                    if action.over40_action:
+                        await self._execute_over40_strategy(state, action, exchange, current_price, today)
+                        continue
+
+                    if action.should_skip:
+                        logger.info(f"{symbol}: {action.skip_reason}")
+                        continue
+
+                    # 지정가 매도는 즉시 주문 (LOC 아님)
+                    if action.limit_sell_qty > 0 and not state.is_dryrun:
+                        await place_limit_sell(
+                            self.kis, symbol, exchange,
+                            action.limit_sell_qty, action.limit_sell_price,
+                        )
+
+                    # LOC 매수 의도만 저장 (15:30에 체결 판정)
+                    plan = {
+                        "avg_qty": action.loc_buy_avg_qty,
+                        "avg_price": action.loc_buy_avg_price,
+                        "high_qty": action.loc_buy_high_qty,
+                        "high_price": action.loc_buy_high_price,
+                    }
+                    state.paper_loc_plan = plan
                     state.last_order_date = today
                     save_states(self.states)
 
-                    if not state.is_dryrun:
-                        result = await place_immediate_buy(
-                            self.kis, symbol, exchange, action.cold_start_qty, current_price
-                        )
-                        if not result.success:
-                            await self.telegram.notify_order_failure(
-                                symbol, self.config.alerts.order_retry_count, result.message
-                            )
-                    await self.telegram.notify_order_placed(state, action)
-                    continue
-
-                # 40회차 전략은 즉시 실행
-                if action.over40_action:
-                    await self._execute_over40_strategy(state, action, exchange, current_price, today)
-                    continue
-
-                if action.should_skip:
-                    logger.info(f"{symbol}: {action.skip_reason}")
-                    continue
-
-                # 지정가 매도는 즉시 주문 (LOC 아님)
-                if action.limit_sell_qty > 0 and not state.is_dryrun:
-                    await place_limit_sell(
-                        self.kis, symbol, exchange,
-                        action.limit_sell_qty, action.limit_sell_price,
+                    await self.telegram.send_message(
+                        f"📋 <b>[{symbol}] 주문 (모의)</b>\n\n"
+                        f"  LOC 평단: ${plan['avg_price']:.2f} x {plan['avg_qty']}주 (장종료 30분전 판정)\n"
+                        f"  LOC 고가: ${plan['high_price']:.2f} x {plan['high_qty']}주 (장종료 30분전 판정)\n"
+                        f"  지정가 매도: ${action.limit_sell_price:.2f} x {action.limit_sell_qty}주 (즉시 주문)"
                     )
+                    logger.info(f"{symbol}: 매도 주문 완료 + LOC 의도 저장")
 
-                # LOC 매수 의도만 저장 (15:30에 체결 판정)
-                plan = {
-                    "avg_qty": action.loc_buy_avg_qty,
-                    "avg_price": action.loc_buy_avg_price,
-                    "high_qty": action.loc_buy_high_qty,
-                    "high_price": action.loc_buy_high_price,
-                }
-                state.paper_loc_plan = plan
-                state.last_order_date = today
-                save_states(self.states)
-
-                await self.telegram.send_message(
-                    f"📋 <b>[{symbol}] 주문 (모의)</b>\n\n"
-                    f"  LOC 평단: ${plan['avg_price']:.2f} x {plan['avg_qty']}주 (장종료 30분전 판정)\n"
-                    f"  LOC 고가: ${plan['high_price']:.2f} x {plan['high_qty']}주 (장종료 30분전 판정)\n"
-                    f"  지정가 매도: ${action.limit_sell_price:.2f} x {action.limit_sell_qty}주 (즉시 주문)"
-                )
-                logger.info(f"{symbol}: 매도 주문 완료 + LOC 의도 저장")
+                except Exception as e:
+                    logger.error(f"{symbol} LOC 의도 생성 오류: {e}", exc_info=True)
+                    await self.telegram.notify_error(f"{symbol} LOC 의도 생성 오류 발생. 로그를 확인하세요.")
 
         except Exception as e:
             logger.error(f"LOC 의도 생성 오류: {e}", exc_info=True)
@@ -332,44 +337,49 @@ class TradingBot:
                 if not plan.get("avg_qty") and not plan.get("high_qty") and not plan.get("sell_qty"):
                     continue
 
-                # 현재가 = 가상 종가
-                closing_price = await get_current_price(self.kis, symbol, exchange)
+                try:
+                    # 현재가 = 가상 종가
+                    closing_price = await get_current_price(self.kis, symbol, exchange)
 
-                filled = []
+                    filled = []
 
-                # LOC 평단 체결 판정: 종가 <= 평단가
-                if plan.get("avg_qty", 0) > 0 and closing_price <= plan["avg_price"]:
-                    if not state.is_dryrun:
-                        result = await place_loc_buy(
-                            self.kis, symbol, exchange, plan["avg_qty"], plan["avg_price"]
+                    # LOC 평단 체결 판정: 종가 <= 평단가
+                    if plan.get("avg_qty", 0) > 0 and closing_price <= plan["avg_price"]:
+                        if not state.is_dryrun:
+                            result = await place_loc_buy(
+                                self.kis, symbol, exchange, plan["avg_qty"], plan["avg_price"]
+                            )
+                            if result.success:
+                                filled.append(f"LOC 평단: {plan['avg_qty']}주 @ ${closing_price:.2f}")
+
+                    # LOC 고가 체결 판정: 종가 <= 고가
+                    if plan.get("high_qty", 0) > 0 and closing_price <= plan["high_price"]:
+                        if not state.is_dryrun:
+                            result = await place_loc_buy(
+                                self.kis, symbol, exchange, plan["high_qty"], plan["high_price"]
+                            )
+                            if result.success:
+                                filled.append(f"LOC 고가: {plan['high_qty']}주 @ ${closing_price:.2f}")
+
+                    # 결과 알림 (매도는 09:35에 이미 주문됨)
+                    if filled:
+                        msg = f"📊 <b>[{symbol}] LOC 체결 (모의)</b>\n\n  가상 종가: ${closing_price:.2f}\n\n"
+                        msg += "\n".join(f"  {f}" for f in filled)
+                    else:
+                        msg = (
+                            f"📊 <b>[{symbol}] LOC 미체결 (모의)</b>\n\n"
+                            f"  가상 종가: ${closing_price:.2f}\n"
+                            f"  평단: ${plan.get('avg_price', 0):.2f} / 고가: ${plan.get('high_price', 0):.2f}"
                         )
-                        if result.success:
-                            filled.append(f"LOC 평단: {plan['avg_qty']}주 @ ${closing_price:.2f}")
+                    await self.telegram.send_message(msg)
 
-                # LOC 고가 체결 판정: 종가 <= 고가
-                if plan.get("high_qty", 0) > 0 and closing_price <= plan["high_price"]:
-                    if not state.is_dryrun:
-                        result = await place_loc_buy(
-                            self.kis, symbol, exchange, plan["high_qty"], plan["high_price"]
-                        )
-                        if result.success:
-                            filled.append(f"LOC 고가: {plan['high_qty']}주 @ ${closing_price:.2f}")
+                    # 의도 초기화
+                    state.paper_loc_plan = {}
+                    save_states(self.states)
 
-                # 결과 알림 (매도는 09:35에 이미 주문됨)
-                if filled:
-                    msg = f"📊 <b>[{symbol}] LOC 체결 (모의)</b>\n\n  가상 종가: ${closing_price:.2f}\n\n"
-                    msg += "\n".join(f"  {f}" for f in filled)
-                else:
-                    msg = (
-                        f"📊 <b>[{symbol}] LOC 미체결 (모의)</b>\n\n"
-                        f"  가상 종가: ${closing_price:.2f}\n"
-                        f"  평단: ${plan.get('avg_price', 0):.2f} / 고가: ${plan.get('high_price', 0):.2f}"
-                    )
-                await self.telegram.send_message(msg)
-
-                # 의도 초기화
-                state.paper_loc_plan = {}
-                save_states(self.states)
+                except Exception as e:
+                    logger.error(f"{symbol} LOC 체결 판정 오류: {e}", exc_info=True)
+                    await self.telegram.notify_error(f"{symbol} LOC 체결 판정 오류 발생. 로그를 확인하세요.")
 
         except Exception as e:
             logger.error(f"LOC 체결 판정 오류: {e}", exc_info=True)
@@ -389,7 +399,11 @@ class TradingBot:
             await ensure_token(self.kis)
 
             for ticker_config in self.config.tickers:
-                await self._execute_ticker_order(ticker_config, today)
+                try:
+                    await self._execute_ticker_order(ticker_config, today)
+                except Exception as e:
+                    logger.error(f"{ticker_config.symbol} 주문 오류: {e}", exc_info=True)
+                    await self.telegram.notify_error(f"{ticker_config.symbol} 주문 오류 발생. 로그를 확인하세요.")
 
             save_states(self.states)
 
