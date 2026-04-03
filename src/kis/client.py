@@ -1,5 +1,6 @@
 """한국투자증권 Open API HTTP 클라이언트."""
 
+import asyncio
 import logging
 import time
 
@@ -41,6 +42,8 @@ class KISClient:
         self._access_token: str = ""
         self._token_expires_at: float = 0.0
         self._client = httpx.AsyncClient(timeout=30.0)
+        self._min_interval = 0.35  # 초당 최대 ~2.8건 (3건 제한 여유분)
+        self._last_request_at: float = 0.0
 
     @property
     def access_token(self) -> str:
@@ -91,6 +94,7 @@ class KISClient:
 
         for attempt in range(max_retries):
             try:
+                await self._throttle()
                 resp = await self._client.get(url, headers=headers, params=params)
                 resp.raise_for_status()
                 data = resp.json()
@@ -127,6 +131,7 @@ class KISClient:
 
         for attempt in range(attempts):
             try:
+                await self._throttle()
                 resp = await self._client.post(url, headers=headers, json=body or {})
                 resp.raise_for_status()
                 data = resp.json()
@@ -148,6 +153,7 @@ class KISClient:
         """인증 불필요 POST (토큰 발급 등)."""
         url = f"{self.base_url}{path}"
         headers = {"content-type": "application/json; charset=utf-8"}
+        await self._throttle()
         resp = await self._client.post(url, headers=headers, json=body)
         resp.raise_for_status()
         return resp.json()
@@ -160,8 +166,15 @@ class KISClient:
             code = data.get("msg_cd", "")
             raise KISAPIError(f"KIS API 오류: [{code}] {msg}", code=code, detail=msg)
 
+    async def _throttle(self) -> None:
+        """API 호출 간 최소 간격을 유지한다 (초당 3건 제한 대응)."""
+        now = time.monotonic()
+        elapsed = now - self._last_request_at
+        if elapsed < self._min_interval:
+            await asyncio.sleep(self._min_interval - elapsed)
+        self._last_request_at = time.monotonic()
+
     async def _async_sleep(self, seconds: float):
-        import asyncio
         await asyncio.sleep(seconds)
 
     async def close(self):
