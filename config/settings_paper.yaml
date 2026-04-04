@@ -2,16 +2,11 @@
 
 # 매매 대상 종목 (멀티 종목 지원)
 tickers:
-  - symbol: "SQQQ"
-    exchange: "NASD"        # NASD, NYSE, AMEX
-    total_capital: 30000.0  # USD - 이 종목에 투입할 총 자금
-    num_splits: 40          # 분할 수 (기본 40)
-    profit_target_pct: 0.10 # 목표 수익률 (10%)
   - symbol: "TQQQ"
     exchange: "NASD"
     total_capital: 30000.0
     num_splits: 40
-    profit_target_pct: 0.10
+    profit_target_pct: 0.05
 
 # 스케줄 설정
 schedule:
