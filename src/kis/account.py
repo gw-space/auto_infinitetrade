@@ -157,9 +157,10 @@ async def get_executions(
         "CTX_AREA_NK200": "",
     }
 
-    # 모의투자는 ORD_DT 필드를 별도로 요구
+    # 모의투자는 추가 필드를 요구
     if client.is_paper:
         params["ORD_DT"] = date_yyyymmdd
+        params["ODNO"] = ""
 
     data = await client.get(
         "/uapi/overseas-stock/v1/trading/inquire-ccnl",
