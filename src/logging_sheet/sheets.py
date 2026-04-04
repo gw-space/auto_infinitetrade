@@ -26,7 +26,7 @@ DAILY_HEADERS = [
 
 CYCLE_HEADERS = [
     "사이클", "시작일", "종료일", "종목", "투입총액(USD)", "매도총액(USD)",
-    "총수익(USD)", "총수익(KRW)", "수익률(%)", "사용분할", "종료사유",
+    "총수익(USD)", "수익률(%)", "사용분할", "종료사유",
 ]
 
 
@@ -147,8 +147,6 @@ class SheetsLogger:
         try:
             ws = self._get_or_create_sheet(CYCLE_SHEET_NAME, CYCLE_HEADERS)
 
-            profit_krw = profit_usd * usd_krw_rate if usd_krw_rate > 0 else 0
-
             row = [
                 cycle_number,
                 start_date,
@@ -157,7 +155,6 @@ class SheetsLogger:
                 f"{total_invested:.2f}",
                 f"{total_sold:.2f}",
                 f"{profit_usd:+.2f}",
-                f"{profit_krw:+.0f}" if profit_krw != 0 else "-",
                 f"{return_pct:+.2f}",
                 f"{splits_used:.1f}/{num_splits}",
                 end_reason,
