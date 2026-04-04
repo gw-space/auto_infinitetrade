@@ -73,6 +73,12 @@ def _load_cached_token(client: KISClient) -> bool:
 
         token = cached.get("access_token", "")
         expires_at = cached.get("expires_at", 0.0)
+        cached_app_key = cached.get("app_key", "")
+
+        # API 키가 변경되었으면 캐시 무효
+        if cached_app_key and cached_app_key != client.app_key:
+            logger.info("API 키 변경 감지, 캐시 토큰 무효화")
+            return False
 
         if not token or time.time() >= (expires_at - 3600):
             return False
@@ -92,6 +98,7 @@ def _save_cached_token(client: KISClient) -> None:
     data = {
         "access_token": client.access_token,
         "expires_at": client.token_expires_at,
+        "app_key": client.app_key,
     }
 
     fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
